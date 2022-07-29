@@ -2,3 +2,9 @@ name = "AcousticPACMAN"
 uuid = "0520ed25-de29-45e3-b301-7e7af75b2424"
 authors = ["Lucas C Wilcox <lucas@swirlee.com>"]
 version = "0.1.0"
+
+[deps]
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+
+[compat]
+SpecialFunctions = "2"
