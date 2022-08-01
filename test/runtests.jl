@@ -2,6 +2,7 @@ using AcousticPACMAN
 using CSV
 using DataFrames
 using Test
+using Pkg
 
 @testset "Surface Vibration" begin
     referencedata =
@@ -43,4 +44,28 @@ using Test
     end
 end
 
+if tryparse(Bool, get(ENV, "PACMAN_TEST_EXAMPLES", "false"))
+    @testset "examples" begin
+        julia = Base.julia_cmd()
+        base_dir = joinpath(@__DIR__, "..")
+
+        for example_dir in readdir(joinpath(base_dir, "examples"), join = true)
+            @testset "$example_dir" begin
+                mktempdir() do tmp_dir
+                    # Change to temporary directory so that any files created by the
+                    # example get cleaned up after execution.
+                    cd(tmp_dir)
+                    example_project = Pkg.Types.projectfile_path(example_dir)
+                    tmp_project = Pkg.Types.projectfile_path(tmp_dir)
+                    cp(example_project, tmp_project)
+
+                    for script in
+                        filter!(s -> endswith(s, ".jl"), readdir(example_dir, join = true))
+                        cmd = `$julia --project=$tmp_project --threads=auto -e "import Pkg; Pkg.develop(path=raw\"$base_dir\"); Pkg.instantiate(); include(raw\"$script\")"`
+                        @test success(pipeline(cmd, stderr = stderr, stdout = stdout))
+                    end
+                end
+            end
+        end
+    end
 end
