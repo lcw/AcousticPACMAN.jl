@@ -1,45 +1,73 @@
 using AcousticPACMAN
-using CSV
-using DataFrames
-using Test
+using CondaPkg
 using Pkg
+using PythonCall
+using Test
 
-@testset "Surface Vibration" begin
-    referencedata =
-        CSV.read("../contrib/reference_solution_surface_vibration.csv", DataFrame)
+CondaPkg.add("scipy")
+CondaPkg.add("numpy")
+CondaPkg.status()
 
-    function surfacevibrationscatter(f)
-        ρ₀ = big"1.2041"
-        c₀ = big"342.21"
-        Z = ρ₀ * c₀
-        k = f * 2 * pi / c₀
-        r₀ = big"1.0"
-        M = 100
-        N = 6
-        pac =
-            pacman(M, N, k, r₀, Z, surfacevibration(BigFloat[one(BigFloat)/10], BigFloat[]))
-        p = pressure(pac)
-        r = big"2.0"
-        ϕ = deg2rad.(range(big"0.0", stop = big"360", length = 72))
-        a = similar(ϕ, complex(typeof(r)))
-        Threads.@threads :static for i in eachindex(a, ϕ)
-            a[i] = p.(r, ϕ[i])
-        end
-        return a
-    end
+pyimport("sys").path.append(".")
+const pypacman = pyimport("pacman")
+const pycylinder = pyimport("cylinder")
 
-    function referencescatter(j)
-        return parse.(Complex{BigFloat}, referencedata[:, 2+j])
-    end
-
-    for (j, (f, rtol)) in enumerate(
-        zip(
-            [big"16", big"31.5", big"63", (big"125" .* 2 .^ (0:5))...],
-            [0.0023, 0.0034, 0.0054, 0.0084, 0.015, 0.028, 0.054, 0.11, 0.22],
-        ),
+@testset "Scattering" begin
+    for (rₛ, ϕₛ, Q, V₀) in (
+        (Inf, pi / 4, 1, 0), # plane wave scattering
+        (0, 0, 0, 1 / 10),   # surface vibration
     )
-        @testset "Freq $f" begin
-            @test isapprox(surfacevibrationscatter(f), referencescatter(j); rtol = rtol)
+        for f in [16.0, 1000]
+            for N in [4, 6]
+                @testset "Case N=$N f=$f rₛ=$rₛ ϕₛ=$ϕₛ Q=$Q V₀=$V₀" begin
+                    r₀ = 1.0
+                    r = 2.0
+                    ρ₀ = 1.2041
+                    c₀ = 342.21
+                    Z = ρ₀ * c₀
+                    k = f * 2 * pi / c₀
+                    M = 10
+
+                    pyAA, pyAS = pypacman.build_matrix(k, r₀, N, M)
+                    pyrhsA, pyrhsS = pypacman.build_rhs(k, r₀, N, M, rₛ, ϕₛ, Q, 0, Z * V₀)
+                    pyaA, pyaS =
+                        pypacman.calc_mode_amplitudes(k, r₀, N, M, rₛ, ϕₛ, Q, 0, Z * V₀)
+                    pybA, pybS = pypacman.calc_b(pyaA, pyaS, k, r₀, N, M, rₛ, ϕₛ, 0, Q)
+
+                    ic = rₛ == Inf ? planewave(M, ϕₛ) : surfacevibration([V₀], typeof(V₀)[])
+                    jlAS, jlAA, jlrhsS, jlrhsA =
+                        AcousticPACMAN.getsystem(M, N, k, r₀, Z, ic)
+
+                    @test isapprox(jlAS, pyconvert(Array, pyAS))
+                    @test isapprox(jlAA, pyconvert(Array, pyAA))
+                    @test isapprox(jlrhsS, pyconvert(Array, pyrhsS))
+                    @test isapprox(jlrhsA, pyconvert(Array, pyrhsA))
+
+                    pac = pacman(M, N, k, r₀, Z, ic)
+                    jlaS = AcousticPACMAN.outersymmetricmodeamplitudes(pac)
+                    jlaA = AcousticPACMAN.outerantisymmetricmodeamplitudes(pac)
+                    jlbS = AcousticPACMAN.innersymmetricmodeamplitudes(pac)
+                    jlbA = AcousticPACMAN.innerantisymmetricmodeamplitudes(pac)
+
+                    @test isapprox(jlaS, pyconvert(Array, pyaS))
+                    @test isapprox(jlaA, pyconvert(Array, pyaA))
+                    @test isapprox(jlbS, pyconvert(Array, pybS))
+                    @test isapprox(jlbA, pyconvert(Array, pybA))
+
+                    p = pressure(pac)
+                    ϕs = range(0.0; stop = 2π, length = 10)
+
+                    pyp = [
+                        pyconvert(
+                            Complex{Float64},
+                            pycylinder.calc_p(k, pyaA, pyaS, [r * cos(ϕ), r * sin(ϕ)]),
+                        ) for ϕ in ϕs
+                    ]
+                    jlp = p.(r, ϕs)
+
+                    @test isapprox(pyp, jlp)
+                end
+            end
         end
     end
 end

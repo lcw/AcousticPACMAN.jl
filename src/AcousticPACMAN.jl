@@ -1,7 +1,7 @@
 module AcousticPACMAN
 using SpecialFunctions
 
-export pacman, pressure, velocity, surfacevibration
+export pacman, pressure, velocity, surfacevibration, planewave
 
 δ(m, n) = m == n
 δ(m) = m == 0 ? 1 : 2
@@ -53,27 +53,35 @@ struct VelocityFun{P} <: Fun
     pac::P
 end
 
-struct Pacman{T,C<:AbstractArray{Complex{T}}}
-    aA::C
+struct Pacman{I,T,C<:AbstractArray{Complex{T}}}
     aS::C
-    M::Int
-    N::Int
+    aA::C
+    bS::C
+    bA::C
+    M::I
+    N::I
     k::T
     r₀::T
     Z₀::T
 end
 
-struct InitialCondition{A}
+abstract type InitialCondition end
+
+struct InitialConditionCoefficients{A}
     VSvib::A
     VAvib::A
-    Pinc::A
-    Vinc::A
+    PSinc::A
+    PAinc::A
+    VSinc::A
+    VAinc::A
 end
 
-vibrationsymmetricmodeamplitudes(ic::InitialCondition) = ic.VSvib
-vibrationantisymmetricmodeamplitudes(ic::InitialCondition) = ic.VAvib
-incidentpressuremodeamplitudes(ic::InitialCondition) = ic.Pinc
-incidentvelocitymodeamplitudes(ic::InitialCondition) = ic.Vinc
+symmetricvibration(icc::InitialConditionCoefficients) = icc.VSvib
+antisymmetricvibration(icc::InitialConditionCoefficients) = icc.VAvib
+symmetricincidentpressure(icc::InitialConditionCoefficients) = icc.PSinc
+antisymmetricincidentpressure(icc::InitialConditionCoefficients) = icc.PAinc
+symmetricincidentvelocity(icc::InitialConditionCoefficients) = icc.VSinc
+antisymmetricincidentvelocity(icc::InitialConditionCoefficients) = icc.VAinc
 
 wavenumber(pac::Pacman) = pac.k
 truncationorder(pac::Pacman) = pac.M
@@ -82,86 +90,209 @@ radius(pac::Pacman) = pac.r₀
 characteristicimpedance(pac::Pacman) = pac.Z₀
 outersymmetricmodeamplitudes(pac::Pacman) = pac.aS
 outerantisymmetricmodeamplitudes(pac::Pacman) = pac.aA
+innersymmetricmodeamplitudes(pac::Pacman) = pac.bS
+innerantisymmetricmodeamplitudes(pac::Pacman) = pac.bA
 pressure(pac::Pacman) = PressureFun(pac)
 velocity(pac::Pacman) = VelocityFun(pac)
 
 function pacman(M, N, k, r₀, Z₀, ic::InitialCondition)
+    AS, AA, rhsS, rhsA = getsystem(M, N, k, r₀, Z₀, ic)
+
+    aS = AS \ rhsS
+
+    # The zero antisymmetric mode doesn't contribute to
+    # the solution.  So we just set it to zero and solve
+    # for the other modes.
+    aA = similar(aS)
+    aA[1] = 0
+    @views aA[2:end] .= AA[2:end, 2:end] \ rhsA[2:end]
+
+    bS, bA = getinteriormodes(aS, aA, M, N, k * r₀, ic)
+
+    return Pacman(aS, aA, bS, bA, M, N, k, r₀, Z₀)
+end
+
+function getinteriormodes(aS, aA, M, N, kr₀, ic::InitialCondition)
+    T = typeof(kr₀)
+    Ninv = one(T) / N
+
+    icc = coefficients(ic, kr₀)
+    psinc = symmetricincidentpressure(icc)
+    painc = antisymmetricincidentpressure(icc)
+
+    PSinc = zeros(eltype(psinc), M + 1)
+    PAinc = zeros(eltype(painc), M + 1)
+
+    PSinc[1:length(psinc)] .= psinc
+    PAinc[1:length(painc)] .= painc
+
+    bS = similar(aS)
+    bA = similar(aA)
+
+    # Precompute special functions for speed
+    h = zeros(complex(T), M + 1)
+    icosN = zeros(T, M + 1, M + 1)
+    isinN = zeros(T, M + 1, M + 1)
+
+    Threads.@threads :static for n = 0:M
+        h[n + 1] = hankelh2(T(n), kr₀)
+        for m = 0:M
+            icosN[m + 1, n + 1] = Icos(Ninv, m, n * N)
+            isinN[m + 1, n + 1] = Isin(Ninv, m, n * N + div(N, 2))
+        end
+    end
+
+    Threads.@threads :static for η = 0:M
+        bS[η + 1] =
+            δ(η * N) * sum(@views (aS .* h .+ PSinc) .* icosN[:, η + 1]) /
+            besselj(η * N, kr₀)
+        bA[η + 1] =
+            2 * sum(@views (aA .* h .+ PAinc) .* isinN[:, η + 1]) /
+            besselj(η * N + div(N, 2), kr₀)
+    end
+
+    return (bS, bA)
+end
+
+function getsystem(M, N, k, r₀, Z₀, ic::InitialCondition)
     T = typeof(r₀)
-
-    VSvib = vibrationsymmetricmodeamplitudes(ic)
-    VAvib = vibrationantisymmetricmodeamplitudes(ic)
-    Pinc = incidentpressuremodeamplitudes(ic)
-    Vinc = incidentvelocitymodeamplitudes(ic)
-
     kr₀ = k * r₀
     Ninv = one(T) / N
 
-    Jcoef = [Ninv * δ(η * N) * besseljprime(η * N, kr₀) / besselj(η * N, kr₀) for η = 0:M]
-    hp = [hankelh2prime(T(i), kr₀) / δ(i) for i = 0:M]
-    h = [hankelh2(T(n), kr₀) for n = 0:M]
-    icosN = [Icos(Ninv, n, η * N) for n = 0:M, η = 0:M]
+    icc = coefficients(ic, kr₀)
 
-    # Build and solve system for the symmetric modes
-    A = zeros(complex(T), M + 1, M + 1)
+    VSvib = symmetricvibration(icc)
+    VAvib = antisymmetricvibration(icc)
+    PSinc = symmetricincidentpressure(icc)
+    PAinc = antisymmetricincidentpressure(icc)
+    VSinc = symmetricincidentvelocity(icc)
+    VAinc = antisymmetricincidentvelocity(icc)
+
+    # Precompute special functions for speed
+    h = zeros(complex(T), M + 1)
+    hp = zeros(complex(T), M + 1)
+    JcoefS = zeros(T, M + 1)
+    JcoefA = zeros(T, M + 1)
+    icosN = zeros(T, M + 1, M + 1)
+    isinN = zeros(T, M + 1, M + 1)
+
     Threads.@threads :static for n = 0:M
+        h[n + 1] = hankelh2(T(n), kr₀)
+        hp[n + 1] = hankelh2prime(T(n), kr₀)
+        JcoefS[n + 1] = Ninv * δ(n * N) * besseljprime(n * N, kr₀) / besselj(n * N, kr₀)
+        JcoefA[n + 1] =
+            Ninv * 2 * besseljprime(n * N + div(N, 2), kr₀) /
+            besselj(n * N + div(N, 2), kr₀)
+        for m = 0:M
+            icosN[m + 1, n + 1] = Icos(Ninv, m, n * N)
+            isinN[m + 1, n + 1] = Isin(Ninv, m, n * N + div(N, 2))
+        end
+    end
+
+    AS = zeros(complex(T), M + 1, M + 1)
+    AA = zeros(complex(T), M + 1, M + 1)
+    rhsS = zeros(complex(T), M + 1)
+    rhsA = zeros(complex(T), M + 1)
+
+    Threads.@threads :static for n = 0:M
+        # Build the system for the symmetric modes
         for i = 0:M
             J = zero(T)
-            for η = 0:M
-                J += Jcoef[η+1] * icosN[n+1, η+1] * icosN[i+1, η+1]
+            for η = 0:(div(M + 1, N) - 1)
+                J += JcoefS[η + 1] * icosN[n + 1, η + 1] * icosN[i + 1, η + 1]
             end
-            A[i+1, n+1] = δ(n, i) * hp[i+1] - J * h[n+1]
+            AS[i + 1, n + 1] = δ(n, i) * hp[i + 1] / δ(i) - J * h[n + 1]
+        end
+
+        for nstar = 0:(length(PSinc) - 1)
+            for η = 0:(div(M + 1, N) - 1)
+                rhsS[n + 1] +=
+                    PSinc[nstar + 1] *
+                    JcoefS[η + 1] *
+                    icosN[nstar + 1, η + 1] *
+                    icosN[n + 1, η + 1]
+            end
+        end
+
+        if n < length(VSinc)
+            rhsS[n + 1] += -VSinc[n + 1] / δ(n)
+        end
+
+        if n < length(VSvib)
+            rhsS[n + 1] += -im * Z₀ * VSvib[n + 1] / δ(n)
+        end
+
+        for nstar = 0:(length(VSvib) - 1)
+            rhsS[n + 1] += im * Ninv * Z₀ * VSvib[nstar + 1] * Icos(Ninv, n, nstar)
+        end
+
+        # Build the system for the antisymmetric modes
+        for i = 0:M
+            J = zero(T)
+            for η = 0:(div(M + 1, N) - 1)
+                J += JcoefA[η + 1] * isinN[n + 1, η + 1] * isinN[i + 1, η + 1]
+            end
+            AA[i + 1, n + 1] = (δ(n, i) - δ(i, 0)) * hp[i + 1] / 2 - J * h[n + 1]
+        end
+
+        for nstar = 0:(length(PAinc) - 1)
+            for η = 0:(div(M + 1, N) - 1)
+                rhsA[n + 1] +=
+                    PAinc[nstar + 1] *
+                    JcoefA[η + 1] *
+                    isinN[nstar + 1, η + 1] *
+                    isinN[n + 1, η + 1]
+            end
+        end
+
+        if n < length(VAinc)
+            rhsA[n + 1] += -VAinc[n + 1] / 2
+        end
+
+        if n < length(VAvib)
+            rhsA[n + 1] += -im * Z₀ * (1 - δ(n, 0)) * VAvib[n + 1] / 2
+        end
+
+        for nstar = 0:(length(VAvib) - 1)
+            rhsA[n + 1] += im * Ninv * Z₀ * VAvib[nstar + 1] * Isin(Ninv, n, nstar)
         end
     end
 
-    rhs = zeros(complex(T), M + 1)
-
-    Threads.@threads :static for i = 0:M
-        for nstar = 0:(length(Pinc)-1)
-            for η = 0:M
-                rhs[i+1] +=
-                    Pinc[nstar+1] * Jcoef[η+1] * icosN[nstar+1, η+1] * icosN[i+1, η+1]
-            end
-        end
-
-        if i < length(Vinc)
-            rhs[i+1] += -Vinc[i+1] / δ(i)
-        end
-
-        if i < length(VSvib)
-            rhs[i+1] += -im * Z₀ * VSvib[i+1] / δ(i)
-        end
-
-        for nstar = 0:(length(VSvib)-1)
-            rhs[i+1] += im * Ninv * Z₀ * VSvib[nstar+1] * Icos(Ninv, i, nstar)
-        end
-    end
-
-    aS = A \ rhs
-
-    # Build and solve system for the antisymmetric modes
-    aA = similar(aS)
-    fill!(aA, 0)
-
-    return Pacman(aA, aS, M, N, k, r₀, Z₀)
+    return (AS, AA, rhsS, rhsA)
 end
 
 (p::PressureFun)(r, ϕ) = apply(p, r, ϕ)
 
 @inline function apply(p::PressureFun, r, ϕ)
     pac = pacman(p)
+
     k = wavenumber(pac)
     T = eltype(k)
+    r₀ = radius(pac)
+    N = wedgenumber(pac)
+
+    ϕ₀ = π / T(N)
     kr = k * r
 
     M = truncationorder(pac)
-    aA = outerantisymmetricmodeamplitudes(pac)
-    aS = outersymmetricmodeamplitudes(pac)
+    n = 0:M
 
-    val = zero(complex(T))
-    for n = 0:M
-        aAn = aA[n+1]
-        aSn = aS[n+1]
-        val += hankelh2(T(n), kr) * (aAn * sin(n * ϕ) + aSn * cos(n * ϕ))
+    if r ≥ radius(pac)
+        # outside the pacman
+        aS = outersymmetricmodeamplitudes(pac)
+        aA = outerantisymmetricmodeamplitudes(pac)
+        val = sum(@. hankelh2(T(n), kr) * (aA * sin(n * ϕ) + aS * cos(n * ϕ)))
+    elseif r < r₀ && -ϕ₀ ≤ ϕ ≤ ϕ₀
+        # inside the mouth
+        bS = innersymmetricmodeamplitudes(pac)
+        bA = innerantisymmetricmodeamplitudes(pac)
+        val = sum(
+            @. besselj(n * N + div(N, 2), kr) * bA * sin(n * N + div(N, 2) * ϕ) +
+               besselj(n * N, kr) * bS * cos(n * N * ϕ)
+        )
+    else
+
+        val = zero(Complex{T})
     end
 
     return val
@@ -171,28 +302,90 @@ end
 
 @inline function apply(v::VelocityFun, r, ϕ)
     pac = pacman(v)
+
     k = wavenumber(pac)
     T = eltype(k)
+    r₀ = radius(pac)
+    N = wedgenumber(pac)
+
+    ϕ₀ = π / T(N)
     kr = k * r
 
     M = truncationorder(pac)
-    aA = outerantisymmetricmodeamplitudes(pac)
-    aS = outersymmetricmodeamplitudes(pac)
+    n = 0:M
 
-    val = zero(complex(T))
-    for n = 0:M
-        aAn = aA[n+1]
-        aSn = aS[n+1]
-        val += hankelh2prime(T(n), kr) * (aAn * sin(n * ϕ) + aSn * cos(n * ϕ))
+    if r ≥ radius(pac)
+        # outside the pacman
+        aS = outersymmetricmodeamplitudes(pac)
+        aA = outerantisymmetricmodeamplitudes(pac)
+        val = im * sum(@. hankelh2prime(T(n), kr) * (aA * sin(n * ϕ) + aS * cos(n * ϕ)))
+    elseif r < r₀ && -ϕ₀ ≤ ϕ ≤ ϕ₀
+        # inside the mouth
+        bS = innersymmetricmodeamplitudes(pac)
+        bA = innerantisymmetricmodeamplitudes(pac)
+        val = im * sum(
+            @. besseljprime(n * N + div(N, 2), kr) * bA * sin(n * N + div(N, 2) * ϕ) +
+               besseljprime(n * N, kr) * bS * cos(n * N * ϕ)
+        )
+    else
+
+        val = zero(Complex{T})
     end
 
-    return im * val
+    return val
 end
 
-function surfacevibration(VSvib, VAvib)
-    Pinc = similar(VSvib, 0)
-    Vinc = similar(VSvib, 0)
-    return InitialCondition(VSvib, VAvib, Pinc, Vinc)
+struct SurfaceVibration{A} <: InitialCondition
+    VSvib::A
+    VAvib::A
+end
+
+surfacevibration(VSvib, VAvib) = SurfaceVibration(VSvib, VAvib)
+
+function coefficients(sv::SurfaceVibration, kr)
+    PSinc = similar(sv.VSvib, 0)
+    PAinc = similar(sv.VSvib, 0)
+    VSinc = similar(sv.VSvib, 0)
+    VAinc = similar(sv.VSvib, 0)
+    return InitialConditionCoefficients(sv.VSvib, sv.VAvib, PSinc, PAinc, VSinc, VAinc)
+end
+
+struct PlaneWave{T,I} <: InitialCondition
+    M::I
+    ϕₛ::T
+end
+
+planewave(M, ϕₛ) = PlaneWave(M, ϕₛ)
+order(pw::PlaneWave) = pw.M
+incidentangle(pw::PlaneWave) = pw.ϕₛ
+
+function pressure(pw::PlaneWave{T}, kr, ϕ) where {T}
+    cs = coefficients(pw::PlaneWave{T}, kr)
+
+    M = order(pw)
+    n = 0:M
+    p = sum(@. cs.PAinc * sin(n * ϕ) + cs.PSinc * cos(n * ϕ))
+
+    return p
+end
+
+function coefficients(pw::PlaneWave{T}, kr) where {T}
+    M = order(pw)
+    ϕₛ = incidentangle(pw)
+
+    Pinc = [δ(n) * im^n * besselj(T(n), kr) for n = 0:M]
+    Vinc = [δ(n) * im^n * besseljprime(T(n), kr) for n = 0:M]
+    S = [cos(n * ϕₛ) for n = 0:M]
+    A = [sin(n * ϕₛ) for n = 0:M]
+
+    PSinc = Pinc .* S
+    PAinc = Pinc .* A
+    VSinc = Vinc .* S
+    VAinc = Vinc .* A
+    VSvib = similar(PSinc, 0)
+    VAvib = similar(PSinc, 0)
+
+    return InitialConditionCoefficients(VSvib, VAvib, PSinc, PAinc, VSinc, VAinc)
 end
 
 end # module AcousticPACMAN
