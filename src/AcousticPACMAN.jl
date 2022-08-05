@@ -22,6 +22,10 @@ for C in (:besselj, :bessely, :hankelh1, :hankelh2)
     end
 end
 
+function SpecialFunctions.besselh(nu::Int, k::Int, x::BigFloat)
+    return besselh(BigFloat(nu), k, x)
+end
+
 function SpecialFunctions.besselh(nu::BigFloat, k::Int, x::BigFloat)
     if k == 1
         return complex(besselj(nu, x), bessely(nu, x))
@@ -135,7 +139,7 @@ function getinteriormodes(aS, aA, M, N, kr₀, ic::InitialCondition)
     isinN = zeros(T, M + 1, M + 1)
 
     Threads.@threads :static for n = 0:M
-        h[n + 1] = hankelh2(T(n), kr₀)
+        h[n + 1] = hankelh2(n, kr₀)
         for m = 0:M
             icosN[m + 1, n + 1] = Icos(Ninv, m, n * N)
             isinN[m + 1, n + 1] = Isin(Ninv, m, n * N + div(N, 2))
@@ -177,8 +181,8 @@ function getsystem(M, N, k, r₀, Z₀, ic::InitialCondition)
     isinN = zeros(T, M + 1, M + 1)
 
     Threads.@threads :static for n = 0:M
-        h[n + 1] = hankelh2(T(n), kr₀)
-        hp[n + 1] = hankelh2prime(T(n), kr₀)
+        h[n + 1] = hankelh2(n, kr₀)
+        hp[n + 1] = hankelh2prime(n, kr₀)
         JcoefS[n + 1] = Ninv * δ(n * N) * besseljprime(n * N, kr₀) / besselj(n * N, kr₀)
         JcoefA[n + 1] =
             Ninv * 2 * besseljprime(n * N + div(N, 2), kr₀) /
@@ -281,7 +285,7 @@ end
         # outside the pacman
         aS = outersymmetricmodeamplitudes(pac)
         aA = outerantisymmetricmodeamplitudes(pac)
-        val = sum(@. hankelh2(T(n), kr) * (aA * sin(n * ϕ) + aS * cos(n * ϕ)))
+        val = sum(@. hankelh2(n, kr) * (aA * sin(n * ϕ) + aS * cos(n * ϕ)))
     elseif r < r₀ && -ϕ₀ ≤ ϕ ≤ ϕ₀
         # inside the mouth
         bS = innersymmetricmodeamplitudes(pac)
@@ -318,7 +322,7 @@ end
         # outside the pacman
         aS = outersymmetricmodeamplitudes(pac)
         aA = outerantisymmetricmodeamplitudes(pac)
-        val = im * sum(@. hankelh2prime(T(n), kr) * (aA * sin(n * ϕ) + aS * cos(n * ϕ)))
+        val = im * sum(@. hankelh2prime(n, kr) * (aA * sin(n * ϕ) + aS * cos(n * ϕ)))
     elseif r < r₀ && -ϕ₀ ≤ ϕ ≤ ϕ₀
         # inside the mouth
         bS = innersymmetricmodeamplitudes(pac)
