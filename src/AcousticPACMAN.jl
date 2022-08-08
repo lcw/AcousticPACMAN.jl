@@ -293,7 +293,7 @@ end
         bA = innerantisymmetricmodeamplitudes(pac)
         n = 0:(length(bS) - 1)
         val = sum(
-            @. besselj(n * N + div(N, 2), kr) * bA * sin(n * N + div(N, 2) * ϕ) +
+            @. besselj(n * N + div(N, 2), kr) * bA * sin((n * N + div(N, 2)) * ϕ) +
                besselj(n * N, kr) * bS * cos(n * N * ϕ)
         )
     else
@@ -328,10 +328,11 @@ end
         bS = innersymmetricmodeamplitudes(pac)
         bA = innerantisymmetricmodeamplitudes(pac)
         n = 0:(length(bS) - 1)
-        val = im * sum(
-            @. besseljprime(n * N + div(N, 2), kr) * bA * sin(n * N + div(N, 2) * ϕ) +
-               besseljprime(n * N, kr) * bS * cos(n * N * ϕ)
-        )
+        val =
+            im * sum(
+                @. besseljprime(n * N + div(N, 2), kr) * bA * sin((n * N + div(N, 2)) * ϕ) +
+                   besseljprime(n * N, kr) * bS * cos(n * N * ϕ)
+            )
     else
 
         val = zero(Complex{T})
