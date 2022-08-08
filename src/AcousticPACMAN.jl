@@ -281,7 +281,7 @@ end
     ϕ₀ = π / T(N)
     kr = k * r
 
-    if r ≥ radius(pac)
+    if r ≥ r₀
         # outside the pacman
         aS = outersymmetricmodeamplitudes(pac)
         aA = outerantisymmetricmodeamplitudes(pac)
@@ -297,7 +297,6 @@ end
                besselj(n * N, kr) * bS * cos(n * N * ϕ)
         )
     else
-
         val = zero(Complex{T})
     end
 
@@ -317,7 +316,7 @@ end
     ϕ₀ = π / T(N)
     kr = k * r
 
-    if r ≥ radius(pac)
+    if r ≥ r₀
         # outside the pacman
         aS = outersymmetricmodeamplitudes(pac)
         aA = outerantisymmetricmodeamplitudes(pac)
@@ -334,7 +333,6 @@ end
                    besseljprime(n * N, kr) * bS * cos(n * N * ϕ)
             )
     else
-
         val = zero(Complex{T})
     end
 
