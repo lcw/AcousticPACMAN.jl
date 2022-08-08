@@ -120,6 +120,8 @@ function getinteriormodes(aS, aA, M, N, kr₀, ic::InitialCondition)
     T = typeof(kr₀)
     Ninv = one(T) / N
 
+    K = div(M + 1, N) - 1
+
     icc = coefficients(ic, kr₀)
     psinc = symmetricincidentpressure(icc)
     painc = antisymmetricincidentpressure(icc)
@@ -130,8 +132,8 @@ function getinteriormodes(aS, aA, M, N, kr₀, ic::InitialCondition)
     PSinc[1:length(psinc)] .= psinc
     PAinc[1:length(painc)] .= painc
 
-    bS = similar(aS)
-    bA = similar(aA)
+    bS = similar(aS, K + 1)
+    bA = similar(aA, K + 1)
 
     # Precompute special functions for speed
     h = zeros(complex(T), M + 1)
@@ -146,7 +148,7 @@ function getinteriormodes(aS, aA, M, N, kr₀, ic::InitialCondition)
         end
     end
 
-    Threads.@threads :static for η = 0:M
+    Threads.@threads :static for η = 0:K
         bS[η + 1] =
             δ(η * N) * sum(@views (aS .* h .+ PSinc) .* icosN[:, η + 1]) /
             besselj(η * N, kr₀)
@@ -162,6 +164,7 @@ function getsystem(M, N, k, r₀, Z₀, ic::InitialCondition)
     T = typeof(r₀)
     kr₀ = k * r₀
     Ninv = one(T) / N
+    K = div(M + 1, N) - 1
 
     icc = coefficients(ic, kr₀)
 
@@ -202,14 +205,14 @@ function getsystem(M, N, k, r₀, Z₀, ic::InitialCondition)
         # Build the system for the symmetric modes
         for i = 0:M
             J = zero(T)
-            for η = 0:(div(M + 1, N) - 1)
+            for η = 0:K
                 J += JcoefS[η + 1] * icosN[n + 1, η + 1] * icosN[i + 1, η + 1]
             end
             AS[i + 1, n + 1] = δ(n, i) * hp[i + 1] / δ(i) - J * h[n + 1]
         end
 
         for nstar = 0:(length(PSinc) - 1)
-            for η = 0:(div(M + 1, N) - 1)
+            for η = 0:K
                 rhsS[n + 1] +=
                     PSinc[nstar + 1] *
                     JcoefS[η + 1] *
@@ -233,14 +236,14 @@ function getsystem(M, N, k, r₀, Z₀, ic::InitialCondition)
         # Build the system for the antisymmetric modes
         for i = 0:M
             J = zero(T)
-            for η = 0:(div(M + 1, N) - 1)
+            for η = 0:K
                 J += JcoefA[η + 1] * isinN[n + 1, η + 1] * isinN[i + 1, η + 1]
             end
             AA[i + 1, n + 1] = (δ(n, i) - δ(i, 0)) * hp[i + 1] / 2 - J * h[n + 1]
         end
 
         for nstar = 0:(length(PAinc) - 1)
-            for η = 0:(div(M + 1, N) - 1)
+            for η = 0:K
                 rhsA[n + 1] +=
                     PAinc[nstar + 1] *
                     JcoefA[η + 1] *
@@ -278,18 +281,17 @@ end
     ϕ₀ = π / T(N)
     kr = k * r
 
-    M = truncationorder(pac)
-    n = 0:M
-
     if r ≥ radius(pac)
         # outside the pacman
         aS = outersymmetricmodeamplitudes(pac)
         aA = outerantisymmetricmodeamplitudes(pac)
+        n = 0:(length(aS) - 1)
         val = sum(@. hankelh2(n, kr) * (aA * sin(n * ϕ) + aS * cos(n * ϕ)))
     elseif r < r₀ && -ϕ₀ ≤ ϕ ≤ ϕ₀
         # inside the mouth
         bS = innersymmetricmodeamplitudes(pac)
         bA = innerantisymmetricmodeamplitudes(pac)
+        n = 0:(length(bS) - 1)
         val = sum(
             @. besselj(n * N + div(N, 2), kr) * bA * sin(n * N + div(N, 2) * ϕ) +
                besselj(n * N, kr) * bS * cos(n * N * ϕ)
@@ -315,18 +317,17 @@ end
     ϕ₀ = π / T(N)
     kr = k * r
 
-    M = truncationorder(pac)
-    n = 0:M
-
     if r ≥ radius(pac)
         # outside the pacman
         aS = outersymmetricmodeamplitudes(pac)
         aA = outerantisymmetricmodeamplitudes(pac)
+        n = 0:(length(aS) - 1)
         val = im * sum(@. hankelh2prime(n, kr) * (aA * sin(n * ϕ) + aS * cos(n * ϕ)))
     elseif r < r₀ && -ϕ₀ ≤ ϕ ≤ ϕ₀
         # inside the mouth
         bS = innersymmetricmodeamplitudes(pac)
         bA = innerantisymmetricmodeamplitudes(pac)
+        n = 0:(length(bS) - 1)
         val = im * sum(
             @. besseljprime(n * N + div(N, 2), kr) * bA * sin(n * N + div(N, 2) * ϕ) +
                besseljprime(n * N, kr) * bS * cos(n * N * ϕ)

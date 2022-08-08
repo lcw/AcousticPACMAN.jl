@@ -51,8 +51,8 @@ const pycylinder = pyimport("cylinder")
 
                     @test isapprox(jlaS, pyconvert(Array, pyaS))
                     @test isapprox(jlaA, pyconvert(Array, pyaA))
-                    @test isapprox(jlbS, pyconvert(Array, pybS))
-                    @test isapprox(jlbA, pyconvert(Array, pybA))
+                    @test isapprox(jlbS, pyconvert(Array, pybS)[1:length(jlbS)])
+                    @test isapprox(jlbA, pyconvert(Array, pybA)[1:length(jlbS)])
 
                     p = pressure(pac)
                     ϕs = range(0.0; stop = 2π, length = 10)
