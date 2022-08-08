@@ -356,21 +356,28 @@ end
 
 struct PlaneWave{T,I} <: InitialCondition
     M::I
+    k::T
     ϕₛ::T
 end
 
-planewave(M, ϕₛ) = PlaneWave(M, ϕₛ)
+planewave(M, k, ϕₛ) = PlaneWave(M, k, ϕₛ)
 order(pw::PlaneWave) = pw.M
+wavenumber(pw::PlaneWave) = pw.k
 incidentangle(pw::PlaneWave) = pw.ϕₛ
 
-function pressure(pw::PlaneWave{T}, kr, ϕ) where {T}
-    cs = coefficients(pw::PlaneWave{T}, kr)
+struct PlaneWavePressureFun{I} <: Fun
+    pw::I
+end
+planewave(p::PlaneWavePressureFun) = p.pw
 
-    M = order(pw)
-    n = 0:M
-    p = sum(@. cs.PAinc * sin(n * ϕ) + cs.PSinc * cos(n * ϕ))
+pressure(pw::PlaneWave) = PlaneWavePressureFun(pw)
+(p::PlaneWavePressureFun)(r, ϕ) = apply(p, r, ϕ)
+@inline function apply(p::PlaneWavePressureFun, r, ϕ)
+    pw = planewave(p)
+    k = wavenumber(pw)
+    ϕₛ = incidentangle(pw)
 
-    return p
+    return cos(k * r * cos(ϕ - ϕₛ)) + im * sin(k * r * cos(ϕ - ϕₛ))
 end
 
 function coefficients(pw::PlaneWave{T}, kr) where {T}

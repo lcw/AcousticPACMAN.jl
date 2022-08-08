@@ -34,7 +34,7 @@ const pycylinder = pyimport("cylinder")
                         pypacman.calc_mode_amplitudes(k, r₀, N, M, rₛ, ϕₛ, Q, 0, Z * V₀)
                     pybA, pybS = pypacman.calc_b(pyaA, pyaS, k, r₀, N, M, rₛ, ϕₛ, 0, Q)
 
-                    ic = rₛ == Inf ? planewave(M, ϕₛ) : surfacevibration([V₀], typeof(V₀)[])
+                    ic = rₛ == Inf ? planewave(M, k, ϕₛ) : surfacevibration([V₀], typeof(V₀)[])
                     jlAS, jlAA, jlrhsS, jlrhsA =
                         AcousticPACMAN.getsystem(M, N, k, r₀, Z, ic)
 
