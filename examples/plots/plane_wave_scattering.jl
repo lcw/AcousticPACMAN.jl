@@ -17,7 +17,7 @@ function planewavescatter(N, f, r, ϕ)
     r₀ = 1.0
     M = 100
     ϕₛ = pi / 4.0
-    ic = planewave(M, ϕₛ)
+    ic = planewave(M, k, ϕₛ, Z)
     p = pressure(pacman(M, N, k, r₀, Z, ic))
 
     a = similar(ϕ, complex(typeof(r)))
