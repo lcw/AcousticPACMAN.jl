@@ -1,7 +1,8 @@
 module AcousticPACMAN
 using SpecialFunctions
 
-export pacman, pressure, radialvelocity, surfacevibration, planewave
+export pacman, pressure, axialvelocity, radialvelocity,
+    surfacevibration, planewave
 
 δ(m, n) = m == n
 δ(m) = m == 0 ? 1 : 2
@@ -53,6 +54,10 @@ struct PressureFun{P} <: Fun
     pac::P
 end
 
+struct AxialVelocityFun{P} <: Fun
+    pac::P
+end
+
 struct RadialVelocityFun{P} <: Fun
     pac::P
 end
@@ -97,6 +102,7 @@ outerantisymmetricmodeamplitudes(pac::Pacman) = pac.aA
 innersymmetricmodeamplitudes(pac::Pacman) = pac.bS
 innerantisymmetricmodeamplitudes(pac::Pacman) = pac.bA
 pressure(pac::Pacman) = PressureFun(pac)
+axialvelocity(pac::Pacman) = AxialVelocityFun(pac)
 radialvelocity(pac::Pacman) = RadialVelocityFun(pac)
 
 function pacman(M, N, k, r₀, Z₀, ic::InitialCondition)
@@ -296,6 +302,42 @@ end
             @. besselj(n * N + div(N, 2), kr) * bA * sin((n * N + div(N, 2)) * ϕ) +
                besselj(n * N, kr) * bS * cos(n * N * ϕ)
         )
+    else
+        val = zero(Complex{T})
+    end
+
+    return val
+end
+
+(p::AxialVelocityFun)(r, ϕ) = apply(p, r, ϕ)
+
+@inline function apply(p::AxialVelocityFun, r, ϕ)
+    pac = pacman(p)
+
+    k = wavenumber(pac)
+    T = eltype(k)
+    r₀ = radius(pac)
+    N = wedgenumber(pac)
+    Z₀ = characteristicimpedance(pac)
+
+    ϕ₀ = π / T(N)
+    kr = k * r
+
+    if r ≥ r₀
+        # outside the pacman
+        aS = outersymmetricmodeamplitudes(pac)
+        aA = outerantisymmetricmodeamplitudes(pac)
+        n = 0:(length(aS) - 1)
+        val = im * sum(@. hankelh2(n, kr) * (aA * n * cos(n * ϕ) - aS * n * sin(n * ϕ))) / (kr * Z₀)
+    elseif r < r₀ && -ϕ₀ ≤ ϕ ≤ ϕ₀
+        # inside the mouth
+        bS = innersymmetricmodeamplitudes(pac)
+        bA = innerantisymmetricmodeamplitudes(pac)
+        n = 0:(length(bS) - 1)
+        val = im * sum(
+            @. besselj(n * N + div(N, 2), kr) * bA * (n * N + div(N, 2)) * cos((n * N + div(N, 2)) * ϕ) -
+               besselj(n * N, kr) * bS * n * N * sin(n * N * ϕ)
+        ) / (kr * Z₀)
     else
         val = zero(Complex{T})
     end
