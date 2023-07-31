@@ -401,12 +401,14 @@ struct PlaneWave{T,I} <: InitialCondition
     M::I
     k::T
     ϕₛ::T
+    Z₀::T
 end
 
-planewave(M, k, ϕₛ) = PlaneWave(M, k, ϕₛ)
+planewave(M, k, ϕₛ, Z₀) = PlaneWave(M, k, ϕₛ, Z₀)
 order(pw::PlaneWave) = pw.M
 wavenumber(pw::PlaneWave) = pw.k
 incidentangle(pw::PlaneWave) = pw.ϕₛ
+characteristicimpedance(pw::PlaneWave) = pw.Z₀
 
 struct PlaneWavePressureFun{I} <: Fun
     pw::I
@@ -421,6 +423,50 @@ pressure(pw::PlaneWave) = PlaneWavePressureFun(pw)
     ϕₛ = incidentangle(pw)
 
     return cos(k * r * cos(ϕ - ϕₛ)) + im * sin(k * r * cos(ϕ - ϕₛ))
+end
+
+struct PlaneWaveRadialVelocityFun{I} <: Fun
+    pw::I
+end
+planewave(p::PlaneWaveRadialVelocityFun) = p.pw
+
+struct PlaneWaveAxialVelocityFun{I} <: Fun
+    pw::I
+end
+planewave(p::PlaneWaveAxialVelocityFun) = p.pw
+
+axialvelocity(pw::PlaneWave) = PlaneWaveAxialVelocityFun(pw)
+(p::PlaneWaveAxialVelocityFun)(r, ϕ) = apply(p, r, ϕ)
+@inline function apply(p::PlaneWaveAxialVelocityFun, r, ϕ)
+    pw = planewave(p)
+    k = wavenumber(pw)
+    ϕₛ = incidentangle(pw)
+    Z₀ = characteristicimpedance(pw)
+
+    kr = k * r
+
+    cϕ = cos(ϕ - ϕₛ)
+
+    sϕ = sin(ϕ - ϕₛ)
+
+    dpdϕ = kr * sϕ * sin(k * r * cϕ) - im * kr * sϕ * cos(k * r * cϕ)
+
+    return im * dpdϕ / (kr * Z₀)
+end
+
+radialvelocity(pw::PlaneWave) = PlaneWaveRadialVelocityFun(pw)
+(p::PlaneWaveRadialVelocityFun)(r, ϕ) = apply(p, r, ϕ)
+@inline function apply(p::PlaneWaveRadialVelocityFun, r, ϕ)
+    pw = planewave(p)
+    k = wavenumber(pw)
+    ϕₛ = incidentangle(pw)
+    Z₀ = characteristicimpedance(pw)
+
+    cϕ = cos(ϕ - ϕₛ)
+
+    dpdr = -k * cϕ * sin(k * r * cϕ) + im * k * cϕ * cos(k * r * cϕ)
+
+    return im * dpdr / (k * Z₀)
 end
 
 function coefficients(pw::PlaneWave{T}, kr) where {T}
