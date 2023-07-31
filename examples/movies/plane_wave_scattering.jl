@@ -19,17 +19,25 @@ function planewavescatter(; gridsize = 1024)
     ϕₛ = pi / T(4)
     ic = planewave(M, k, ϕₛ, Z)
     pac = pacman(M, N, k, r₀, Z, ic)
-    p = pressure(pac)
-    pinc = pressure(ic)
+
+    z = pressure(pac)
+    zinc = pressure(ic)
+
+    # z = axialvelocity(pac)
+    # zinc = axialvelocity(ic)
+
+    # z = radialvelocity(pac)
+    # zinc = radialvelocity(ic)
+
     val = zeros(Complex{T}, gridsize, gridsize)
     prog = Progress(length(x); desc = "Computing time-harmonic values: ")
     Threads.@threads :static for m in eachindex(x)
         for n in eachindex(y)
             r = hypot(x[m], y[n])
             ϕ = atan(y[n], x[m])
-            val[m, n] = p(r, ϕ)
+            val[m, n] = z(r, ϕ)
             if r ≥ r₀
-                val[m, n] += pinc(r, ϕ)
+                val[m, n] += zinc(r, ϕ)
             end
         end
         next!(prog)
