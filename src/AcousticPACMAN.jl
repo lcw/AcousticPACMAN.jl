@@ -312,6 +312,7 @@ end
     T = eltype(k)
     r₀ = radius(pac)
     N = wedgenumber(pac)
+    Z₀ = characteristicimpedance(pac)
 
     ϕ₀ = π / T(N)
     kr = k * r
@@ -321,7 +322,7 @@ end
         aS = outersymmetricmodeamplitudes(pac)
         aA = outerantisymmetricmodeamplitudes(pac)
         n = 0:(length(aS) - 1)
-        val = im * sum(@. hankelh2prime(n, kr) * (aA * sin(n * ϕ) + aS * cos(n * ϕ)))
+        val = im * sum(@. hankelh2prime(n, kr) * (aA * sin(n * ϕ) + aS * cos(n * ϕ))) / Z₀
     elseif r < r₀ && -ϕ₀ ≤ ϕ ≤ ϕ₀
         # inside the mouth
         bS = innersymmetricmodeamplitudes(pac)
@@ -331,7 +332,7 @@ end
             im * sum(
                 @. besseljprime(n * N + div(N, 2), kr) * bA * sin((n * N + div(N, 2)) * ϕ) +
                    besseljprime(n * N, kr) * bS * cos(n * N * ϕ)
-            )
+            ) / Z₀
     else
         val = zero(Complex{T})
     end
