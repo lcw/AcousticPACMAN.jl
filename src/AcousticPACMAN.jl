@@ -1,7 +1,7 @@
 module AcousticPACMAN
 using SpecialFunctions
 
-export pacman, pressure, velocity, surfacevibration, planewave
+export pacman, pressure, radialvelocity, surfacevibration, planewave
 
 δ(m, n) = m == n
 δ(m) = m == 0 ? 1 : 2
@@ -53,7 +53,7 @@ struct PressureFun{P} <: Fun
     pac::P
 end
 
-struct VelocityFun{P} <: Fun
+struct RadialVelocityFun{P} <: Fun
     pac::P
 end
 
@@ -97,7 +97,7 @@ outerantisymmetricmodeamplitudes(pac::Pacman) = pac.aA
 innersymmetricmodeamplitudes(pac::Pacman) = pac.bS
 innerantisymmetricmodeamplitudes(pac::Pacman) = pac.bA
 pressure(pac::Pacman) = PressureFun(pac)
-velocity(pac::Pacman) = VelocityFun(pac)
+radialvelocity(pac::Pacman) = RadialVelocityFun(pac)
 
 function pacman(M, N, k, r₀, Z₀, ic::InitialCondition)
     AS, AA, rhsS, rhsA = getsystem(M, N, k, r₀, Z₀, ic)
@@ -303,9 +303,9 @@ end
     return val
 end
 
-(v::VelocityFun)(r, ϕ) = apply(v, r, ϕ)
+(v::RadialVelocityFun)(r, ϕ) = apply(v, r, ϕ)
 
-@inline function apply(v::VelocityFun, r, ϕ)
+@inline function apply(v::RadialVelocityFun, r, ϕ)
     pac = pacman(v)
 
     k = wavenumber(pac)
