@@ -1,7 +1,7 @@
 using AcousticPACMAN
 using Plots
 
-# This example reporduces the plots in figure 10 of:
+# This example reproduces the plots in figure 10 of:
 #
 #     Harald Ziegelwanger, Paul Reiter, "The PAC-MAN model: Benchmark case for
 #     linear acoustics in computational physics," Journal of Computational
